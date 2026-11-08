@@ -15,7 +15,7 @@ try { db = initializeFirestore(app, { localCache: persistentLocalCache() }); }
 catch (e) { db = initializeFirestore(app, {}); }
 
 const C = window.Cloud;
-let unsub = [], mainRef = null, jRef = null, timer = null, queue = Promise.resolve(), first = { m: false, j: false };
+let unsub = [], mainRef = null, jRef = null, mRef = null, timer = null, queue = Promise.resolve(), first = { m: false, j: false };
 
 function clean(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -25,13 +25,14 @@ function push(what) {
   C.status("Salvataggio…");
   timer = setTimeout(() => {
     const st = C.getState();
-    const { journal, notified, ...main } = st;
+    const { journal, notified, accounts, txs, ...main } = st;
     const doJ = what.j;
     what.j = false;
     queue = queue.then(async () => {
       try {
         await setDoc(mainRef, clean({ ...main, updatedAt: Date.now() }));
         if (doJ) await setDoc(jRef, clean({ entries: journal || {}, updatedAt: Date.now() }));
+        await setDoc(mRef, clean({ accounts: accounts || [], txs: txs || [], updatedAt: Date.now() }));
         C.status(navigator.onLine ? "✓ Sincronizzato" : "Offline: si sincronizza appena torni online");
       } catch (e) {
         C.status("Errore di sincronizzazione: " + (e.code || e.message));
@@ -49,12 +50,13 @@ C.signOut = () => signOut(auth);
 
 onAuthStateChanged(auth, (user) => {
   unsub.forEach(u => u()); unsub = [];
-  mainRef = jRef = null;
+  mainRef = jRef = mRef = null;
   C.user = user ? { email: user.email, uid: user.uid } : null;
   if (!user) { C.status("Non collegato"); C.onUser(); return; }
   C.status("Collegamento…");
   mainRef = doc(db, "users", user.uid, "vita", "main");
   jRef = doc(db, "users", user.uid, "vita", "diario");
+  mRef = doc(db, "users", user.uid, "vita", "soldi");
   first = { m: false, j: false };
   unsub.push(onSnapshot(mainRef, { includeMetadataChanges: false }, (snap) => {
     if (snap.metadata.hasPendingWrites) return;               // è una nostra modifica
@@ -69,6 +71,10 @@ onAuthStateChanged(auth, (user) => {
   unsub.push(onSnapshot(jRef, (snap) => {
     if (snap.metadata.hasPendingWrites || !snap.exists()) return;
     C.applyRemote(null, snap.data().entries || {});
+  }, () => {}));
+  unsub.push(onSnapshot(mRef, (snap) => {
+    if (snap.metadata.hasPendingWrites || !snap.exists()) return;
+    C.applyRemote(null, null, snap.data());
   }, () => {}));
   C.onUser();
 });

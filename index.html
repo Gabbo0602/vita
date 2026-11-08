@@ -104,6 +104,12 @@ textarea.journal{width:100%;min-height:280px;border:1px solid var(--line);border
 .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 .actions .sp{flex:1}
 .quote{font-family:ui-serif,'New York',Georgia,serif;font-size:17px;color:var(--muted);font-style:italic}
+.money{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.money.in{color:var(--accent)}.money.out{color:var(--warn)}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.seg label{flex:1;text-align:center;padding:8px;cursor:pointer;font-weight:600;font-size:14px}
+.seg input{display:none}
+.seg label:has(input:checked){background:var(--accent-soft);color:var(--accent)}
 .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 12px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;z-index:30;max-width:92vw;box-shadow:0 6px 24px rgba(0,0,0,.25);font-weight:500}
 .note{background:var(--accent-soft);border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:12px}
 .note.w{background:var(--warn-soft)}
@@ -132,6 +138,7 @@ textarea.journal{width:100%;min-height:280px;border:1px solid var(--line);border
     <a href="#impegni" data-v="impegni"><span class="ico">✓</span><span class="lbl">Impegni</span></a>
     <a href="#agenda" data-v="agenda"><span class="ico">▦</span><span class="lbl">Agenda</span></a>
     <a href="#abitudini" data-v="abitudini"><span class="ico">↻</span><span class="lbl">Abitudini</span></a>
+    <a href="#soldi" data-v="soldi"><span class="ico">€</span><span class="lbl">Soldi</span></a>
     <a href="#diario" data-v="diario"><span class="ico">✎</span><span class="lbl">Diario</span></a>
     <a href="#altro" data-v="altro"><span class="ico">⚙︎</span><span class="lbl">Altro</span></a>
     <div class="sync" id="sync"></div>
@@ -145,7 +152,7 @@ const AREE=["Lavoro","Salute","Famiglia","Finanze","Crescita","Svago","Casa"];
 const GIORNI=["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
 const MESI=["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 const LS="vita-app-v1";
-let S={goals:[],tasks:[],events:[],habits:[],journal:{}};
+let S={goals:[],tasks:[],events:[],habits:[],journal:{},accounts:[],txs:[]};
 let ui={taskFilter:"aperti",goalArea:"Tutte",calY:null,calM:null,selDay:null,jDay:null};
 
 /* ---------- utils ---------- */
@@ -169,7 +176,7 @@ function streak(h){let n=0,d=today();if(!h.log[d])d=addDays(d,-1);while(h.log[d]
 
 /* ---------- persistence (solo su questo telefono) ---------- */
 function loadLocal(){try{const r=localStorage.getItem(LS);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
-  S.notified=S.notified||{};S.settings=S.settings||{taskHour:"09:00"}}
+  S.notified=S.notified||{};S.accounts=S.accounts||[];S.txs=S.txs||[];S.settings=S.settings||{taskHour:"09:00"}}
 function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast("Memoria piena: fai un backup ed elimina voci vecchie")}}
 function save(journalChanged){saveLocal();if(Cloud.push&&Cloud.user)Cloud.push(!!journalChanged)}
 /* ---------- ponte verso la sincronizzazione (sync.js) ---------- */
@@ -177,10 +184,11 @@ const Cloud=window.Cloud={user:null,ready:false,push:null,text:"",
   getState:()=>S,
   status(t){this.text=t;const e=$("#sync");if(e)e.textContent=t?"☁️ "+t:"";const s=$("#syncState");if(s)s.textContent=t},
   onUser(){const j=$("#jt");if(!(j&&document.activeElement===j))render()},
-  applyRemote(main,journal){
+  applyRemote(main,journal,money){
     if(main){const m=JSON.parse(JSON.stringify(main));delete m.updatedAt;
-      S=Object.assign({goals:[],tasks:[],events:[],habits:[]},m,{journal:S.journal,notified:S.notified,settings:m.settings||S.settings})}
+      S=Object.assign({goals:[],tasks:[],events:[],habits:[]},m,{journal:S.journal,accounts:S.accounts,txs:S.txs,notified:S.notified,settings:m.settings||S.settings})}
     if(journal)S.journal=JSON.parse(JSON.stringify(journal));
+    if(money){const m=JSON.parse(JSON.stringify(money));S.accounts=m.accounts||[];S.txs=m.txs||[]}
     saveLocal();const j=$("#jt");if(!(j&&document.activeElement===j))render()}
 };
 async function doAuth(kind){
@@ -252,7 +260,7 @@ function backup(){const blob=new File([JSON.stringify(S,null,1)],"vita-backup-"+
   if(navigator.canShare&&navigator.canShare({files:[blob]})){navigator.share({files:[blob]}).catch(()=>{});return}
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=blob.name;document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),2000)}
 function restore(inp){const f=inp.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.tasks||!d.goals)throw 0;
-  confirmBox("Il backup sostituirà tutti i dati attuali.",()=>{S=Object.assign({goals:[],tasks:[],events:[],habits:[],journal:{},notified:{},settings:{taskHour:"09:00"}},d);save(true);render();toast("Backup ripristinato ✓")},"Ripristina")}catch(e){toast("File non valido")}};r.readAsText(f)}
+  confirmBox("Il backup sostituirà tutti i dati attuali.",()=>{S=Object.assign({goals:[],tasks:[],events:[],habits:[],journal:{},accounts:[],txs:[],notified:{},settings:{taskHour:"09:00"}},d);save(true);render();toast("Backup ripristinato ✓")},"Ripristina")}catch(e){toast("File non valido")}};r.readAsText(f)}
 
 /* ---------- modal ---------- */
 function openModal(html){$("#modal").innerHTML=html;$("#ov").classList.add("open");if(matchMedia("(pointer:fine)").matches){const f=$("#modal input,#modal textarea");f&&f.focus()}}
@@ -396,6 +404,7 @@ function vOggi(){
    <div class="card"><h3>Abitudini di oggi</h3>
     ${S.habits.map(x=>`<div class="row ${x.log[t]?"done":""}"><button class="chk ${x.log[t]?"on":""}" onclick="toggleHabit('${x.id}','${t}')">${x.log[t]?"✓":""}</button><div class="main"><div class="t">${esc(x.name)}</div></div><span class="streak">${streak(x)?"🔥 "+streak(x):""}</span></div>`).join("")||`<div class="empty">Nessuna abitudine. <a href="#abitudini">Creane una</a>.</div>`}
    </div>
+   ${S.accounts.length?`<div class="card"><h3>Soldi</h3><div class="row"><div class="main"><div class="t">Patrimonio</div></div><div class="money">${eur(S.accounts.reduce((s,a)=>s+accBalance(a),0))}</div></div>${S.accounts.map(a=>`<div class="row"><div class="main"><div class="s">${accIcon(a.type)} ${esc(a.name)}</div></div><div class="money" style="font-weight:500">${eur(accBalance(a))}</div></div>`).join("")}<div style="margin-top:8px"><button class="btn sm" onclick="editTx()">+ Movimento</button></div></div>`:""}
    <div class="card"><h3>Obiettivi in corso</h3>
     ${active.slice(0,5).map(g=>{const p=goalProgress(g);return `<div class="row"><div class="main"><div class="t">${esc(g.title)}</div><div class="bar" style="margin-top:6px"><i style="width:${p}%"></i></div></div><b style="width:42px;text-align:right">${p}%</b></div>`}).join("")||`<div class="empty">Nessun obiettivo. <a href="#obiettivi">Definisci il primo</a>.</div>`}
    </div>
@@ -493,12 +502,108 @@ function vAltro(){
    <button class="btn" onclick="calAll()">Esporta nel Calendario</button></div>
   <div class="card"><h3>💾 Backup</h3><p style="font-size:14px;margin-top:0">Salva una copia dei dati (ad es. in File o iCloud Drive). Fallo ogni tanto: se cancelli l'app o i dati di Safari, il backup è l'unico modo per recuperarli.</p>
    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="backup()">Crea backup</button><label class="btn ghost" style="cursor:pointer">Ripristina<input type="file" accept=".json,application/json" style="display:none" onchange="restore(this)"></label></div>
-   <p style="font-size:12.5px;color:var(--muted)">${S.goals.length} obiettivi · ${S.tasks.length} impegni · ${S.events.length} appuntamenti · ${S.habits.length} abitudini · ${Object.keys(S.journal).length} pagine di diario</p></div>
+   <p style="font-size:12.5px;color:var(--muted)">${S.goals.length} obiettivi · ${S.tasks.length} impegni · ${S.events.length} appuntamenti · ${S.habits.length} abitudini · ${Object.keys(S.journal).length} pagine di diario · ${S.accounts.length} conti · ${S.txs.length} movimenti</p></div>
+  </div>`;
+}
+
+/* ---------- SOLDI ---------- */
+const CAT_OUT=["Spesa","Casa","Bollette","Trasporti","Auto","Salute","Ristoranti","Svago","Abbigliamento","Regali","Viaggi","Abbonamenti","Tasse","Altro"];
+const CAT_IN=["Stipendio","Extra","Rimborsi","Regali","Vendite","Interessi","Altro"];
+const ACC_TYPES=[["banca","🏦 Conto"],["contanti","💶 Contanti"],["carta","💳 Carta/prepagata"],["risparmio","🐷 Risparmi"],["altro","📦 Altro"]];
+const eur=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(n||0);
+const num=v=>{let s=String(v??"").trim().replace(/\s|€/g,"");if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");const n=parseFloat(s);return isFinite(n)?Math.round(n*100)/100:0};
+const numIn=v=>v===""||v==null?"":String(v).replace(".",",");
+function accBalance(a){let b=Number(a.initial)||0;S.txs.forEach(t=>{const m=Number(t.amount)||0;
+  if(t.type==="in"&&t.acc===a.id)b+=m;else if(t.type==="out"&&t.acc===a.id)b-=m;else if(t.type==="tr"){if(t.acc===a.id)b-=m;if(t.to===a.id)b+=m}});return Math.round(b*100)/100}
+const accName=id=>(S.accounts.find(a=>a.id===id)||{name:"—"}).name;
+const accIcon=t=>(ACC_TYPES.find(x=>x[0]===t)||["","📦"])[1].split(" ")[0];
+ui.mY=null;ui.mM=null;ui.txFilter="tutti";
+function editAccount(id){
+  const a=S.accounts.find(x=>x.id===id)||{name:"",type:"banca",initial:""};
+  openModal(`<h2>${id?"Modifica conto":"Nuovo conto"}</h2><form id="fm">
+  <div class="f"><label>Nome</label><input name="name" required value="${esc(a.name)}" placeholder="Es. Conto Intesa, Portafoglio, Hype…"></div>
+  <div class="f2"><div class="f"><label>Tipo</label><select name="type">${ACC_TYPES.map(([v,l])=>`<option value="${v}" ${v===a.type?"selected":""}>${l}</option>`).join("")}</select></div>
+  <div class="f"><label>${id?"Saldo iniziale":"Saldo di oggi"} (€)</label><input name="initial" inputmode="decimal" value="${numIn(a.initial)}" placeholder="0,00"></div></div>
+  ${id?`<p style="font-size:13px;color:var(--muted)">Saldo calcolato oggi: <b>${eur(accBalance(a))}</b>. Se non corrisponde usa “Allinea saldo”.</p>`:""}
+  <div class="actions">${id?`<button type="button" class="btn ghost" id="del">Elimina</button><button type="button" class="btn ghost" id="fix">Allinea saldo</button><span class="sp"></span>`:""}<button type="button" class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn">Salva</button></div></form>`);
+  $("#fm").onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    const o={name:f.name.trim(),type:f.type,initial:num(f.initial)};
+    if(id)Object.assign(a,o);else S.accounts.push(Object.assign({id:uid()},o));closeModal();save();render()};
+  if(id){$("#del").onclick=()=>{const n=S.txs.filter(t=>t.acc===id||t.to===id).length;
+      confirmBox(n?`Il conto ha ${n} movimenti: verranno eliminati anche quelli.`:"Eliminare il conto?",()=>{S.accounts=S.accounts.filter(x=>x.id!==id);S.txs=S.txs.filter(t=>t.acc!==id&&t.to!==id);save();render()})};
+    $("#fix").onclick=()=>{openModal(`<h2>Allinea saldo</h2><p style="font-size:14px">Scrivi quanto c'è davvero oggi su <b>${esc(a.name)}</b>: creo un movimento di correzione.</p><form id="fx"><div class="f"><label>Saldo reale (€)</label><input name="v" inputmode="decimal" required value="${numIn(accBalance(a))}"></div><div class="actions"><button type="button" class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn">Allinea</button></div></form>`);
+      $("#fx").onsubmit=e=>{e.preventDefault();const diff=Math.round((num(new FormData(e.target).get("v"))-accBalance(a))*100)/100;
+        if(diff)S.txs.push({id:uid(),date:today(),type:diff>0?"in":"out",amount:Math.abs(diff),acc:a.id,to:"",cat:"Altro",note:"Allineamento saldo"});closeModal();save();render()}}}
+}
+function editTx(id,preset={}){
+  if(!S.accounts.length){openModal(`<h2>Prima crea un conto</h2><p>Aggiungi almeno un conto (es. il conto in banca o i contanti) per registrare i movimenti.</p><div class="actions"><button class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn" onclick="editAccount()">+ Conto</button></div>`);return}
+  const def=(S.accounts.find(a=>a.type==="banca")||S.accounts[0]).id;
+  const t=S.txs.find(x=>x.id===id)||Object.assign({type:"out",date:today(),amount:"",acc:def,to:"",cat:"Spesa",note:""},preset);
+  const accOpts=sel=>S.accounts.map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${accIcon(a.type)} ${esc(a.name)}</option>`).join("");
+  const otherAcc=(S.accounts.find(a=>a.id!==t.acc)||{}).id;
+  openModal(`<h2>${id?"Modifica movimento":"Nuovo movimento"}</h2><form id="fm">
+  <div class="seg">${[["out","− Uscita"],["in","+ Entrata"],["tr","⇄ Giroconto"]].map(([v,l])=>`<label><input type="radio" name="type" value="${v}" ${t.type===v?"checked":""}><span>${l}</span></label>`).join("")}</div>
+  <div class="f2"><div class="f"><label>Importo (€)</label><input name="amount" inputmode="decimal" required value="${numIn(t.amount)}" placeholder="0,00"></div>
+  <div class="f"><label>Data</label><input type="date" name="date" required value="${t.date}"></div></div>
+  <div class="f2"><div class="f"><label id="lAcc">Conto</label><select name="acc">${accOpts(t.acc)}</select></div>
+  <div class="f" id="fCat"><label>Categoria</label><select name="cat"></select></div>
+  <div class="f" id="fTo"><label>Verso il conto</label><select name="to">${accOpts(t.to||otherAcc)}</select></div></div>
+  <div class="f"><label>Descrizione</label><input name="note" value="${esc(t.note)}" placeholder="Es. Esselunga, affitto, prelievo…"></div>
+  <div class="actions">${id?`<button type="button" class="btn ghost" id="del">Elimina</button><span class="sp"></span>`:""}<button type="button" class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn">Salva</button></div></form>`);
+  const fm=$("#fm");
+  const sync=()=>{const ty=fm.querySelector("input[name=type]:checked").value;$("#fCat").style.display=ty==="tr"?"none":"";$("#fTo").style.display=ty==="tr"?"":"none";
+    $("#lAcc").textContent=ty==="tr"?"Dal conto":"Conto";const cats=ty==="in"?CAT_IN:CAT_OUT;const cur=fm.elements.cat.value||t.cat;
+    fm.elements.cat.innerHTML=cats.map(c=>`<option ${c===cur?"selected":""}>${c}</option>`).join("")};
+  fm.querySelectorAll("input[name=type]").forEach(r=>r.onchange=sync);sync();
+  if(matchMedia("(pointer:fine)").matches)fm.elements.amount.focus();
+  fm.onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(fm));const amt=Math.abs(num(f.amount));
+    if(!amt){toast("Inserisci un importo");return}
+    if(f.type==="tr"&&f.to===f.acc){toast("Scegli due conti diversi");return}
+    const o={type:f.type,date:f.date,amount:amt,acc:f.acc,to:f.type==="tr"?f.to:"",cat:f.type==="tr"?"":f.cat,note:(f.note||"").trim()};
+    if(id)Object.assign(t,o);else S.txs.push(Object.assign({id:uid()},o));closeModal();save();render()};
+  if(id)$("#del").onclick=()=>confirmBox("Eliminare questo movimento?",()=>{S.txs=S.txs.filter(x=>x.id!==id);save();render()});
+}
+function txRow(t){
+  const sign=t.type==="in"?"+":t.type==="out"?"−":"";
+  return `<div class="row" style="cursor:pointer" onclick="editTx('${t.id}')"><div style="width:34px;height:34px;border-radius:10px;background:var(--bg);display:grid;place-items:center;flex:none">${t.type==="in"?"↓":t.type==="out"?"↑":"⇄"}</div>
+  <div class="main"><div class="t">${esc(t.note||(t.type==="tr"?"Giroconto":t.cat))}</div><div class="s">${fmt(t.date)} · ${t.type==="tr"?`${esc(accName(t.acc))} → ${esc(accName(t.to))}`:`${esc(t.cat)} · ${esc(accName(t.acc))}`}</div></div>
+  <div class="money ${t.type==="in"?"in":t.type==="out"?"out":""}">${sign}${eur(t.amount)}</div></div>`;
+}
+function mNav(n){ui.mM+=n;if(ui.mM<0){ui.mM=11;ui.mY--}if(ui.mM>11){ui.mM=0;ui.mY++}render()}
+function vSoldi(){
+  const now=new Date();if(ui.mY===null){ui.mY=now.getFullYear();ui.mM=now.getMonth()}
+  const pre=ui.mY+"-"+pad(ui.mM+1);
+  const tot=S.accounts.reduce((s,a)=>s+accBalance(a),0);
+  const month=S.txs.filter(t=>(t.date||"").startsWith(pre));
+  const inM=month.filter(t=>t.type==="in").reduce((s,t)=>s+t.amount,0),outM=month.filter(t=>t.type==="out").reduce((s,t)=>s+t.amount,0);
+  const byCat={};month.filter(t=>t.type==="out").forEach(t=>byCat[t.cat]=(byCat[t.cat]||0)+t.amount);
+  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);const maxC=cats.length?cats[0][1]:1;
+  const list=month.filter(t=>ui.txFilter==="tutti"||t.type===ui.txFilter).sort((a,b)=>b.date.localeCompare(a.date));
+  const cash=S.accounts.filter(a=>a.type==="contanti").reduce((s,a)=>s+accBalance(a),0);
+  const diff=inM-outM;
+  return `<div class="head"><div><h1>Soldi</h1><p>Conti, contanti, entrate e uscite.</p></div>
+   <div style="display:flex;gap:8px"><button class="btn ghost" onclick="editAccount()">+ Conto</button><button class="btn" onclick="editTx()">+ Movimento</button></div></div>
+  <div class="grid g4" style="margin-bottom:16px">
+   <div class="card stat"><div class="n" style="font-size:26px">${eur(tot)}</div><div class="l">patrimonio totale${cash?` · contanti ${eur(cash)}`:""}</div></div>
+   <div class="card stat"><div class="n money in" style="font-size:26px">${eur(inM)}</div><div class="l">entrate di ${MESI[ui.mM]}</div></div>
+   <div class="card stat"><div class="n money out" style="font-size:26px">${eur(outM)}</div><div class="l">uscite di ${MESI[ui.mM]}</div></div>
+   <div class="card stat"><div class="n" style="font-size:26px">${(diff>=0?"+":"")+eur(diff)}</div><div class="l">risparmio del mese${inM?` · ${Math.round(diff/inM*100)}%`:""}</div></div>
+  </div>
+  <div class="grid g2">
+   <div class="card"><h3>Conti</h3>${S.accounts.map(a=>{const b=accBalance(a);return `<div class="row" style="cursor:pointer" onclick="editAccount('${a.id}')"><div style="font-size:20px;width:30px">${accIcon(a.type)}</div><div class="main"><div class="t">${esc(a.name)}</div><div class="s">${(ACC_TYPES.find(x=>x[0]===a.type)||["","x Altro"])[1].split(" ").slice(1).join(" ")}</div></div><div class="money ${b<0?"out":""}">${eur(b)}</div></div>`}).join("")||`<div class="empty">Aggiungi i tuoi conti: banca, contanti, carte, risparmi. Inserisci il saldo di oggi e Vita lo aggiorna a ogni movimento.</div>`}
+    ${S.accounts.length>1?`<div style="margin-top:10px"><button class="btn sm ghost" onclick="editTx(null,{type:'tr'})">⇄ Giroconto / prelievo</button></div>`:""}</div>
+   <div class="card"><h3>Dove vanno i soldi · ${MESI[ui.mM]}</h3>${cats.map(([c,v])=>`<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:14px"><span>${esc(c)}</span><span class="money">${eur(v)} <span style="color:var(--muted);font-weight:400">${outM?Math.round(v/outM*100):0}%</span></span></div><div class="bar" style="margin-top:4px"><i style="width:${v/maxC*100}%;background:var(--warn)"></i></div></div>`).join("")||`<div class="empty">Nessuna uscita registrata in questo mese.</div>`}</div>
+  </div>
+  <div class="card" style="margin-top:16px">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:6px"><button class="btn ghost sm" onclick="mNav(-1)">‹</button><h3 style="margin:0;text-transform:capitalize;min-width:150px;text-align:center">${MESI[ui.mM]} ${ui.mY}</h3><button class="btn ghost sm" onclick="mNav(1)">›</button></div>
+    <div class="filters" style="margin:0">${[["tutti","Tutti"],["out","Uscite"],["in","Entrate"],["tr","Giroconti"]].map(([k,l])=>`<button class="chip ${ui.txFilter===k?"on":""}" onclick="ui.txFilter='${k}';render()">${l}</button>`).join("")}</div></div>
+   ${list.map(txRow).join("")||`<div class="empty">Nessun movimento in questo mese.</div>`}
   </div>`;
 }
 
 /* ---------- router ---------- */
-const VIEWS={oggi:vOggi,obiettivi:vObiettivi,impegni:vImpegni,agenda:vAgenda,abitudini:vAbitudini,diario:vDiario,altro:vAltro};
+const VIEWS={oggi:vOggi,obiettivi:vObiettivi,impegni:vImpegni,agenda:vAgenda,abitudini:vAbitudini,diario:vDiario,soldi:vSoldi,altro:vAltro};
 function cur(){const h=location.hash.slice(1);return VIEWS[h]?h:"oggi"}
 function render(){
   const v=cur();$("#view").innerHTML=VIEWS[v]();
