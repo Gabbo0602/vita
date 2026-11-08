@@ -134,7 +134,7 @@ textarea.journal{width:100%;min-height:280px;border:1px solid var(--line);border
     <a href="#abitudini" data-v="abitudini"><span class="ico">↻</span><span class="lbl">Abitudini</span></a>
     <a href="#diario" data-v="diario"><span class="ico">✎</span><span class="lbl">Diario</span></a>
     <a href="#altro" data-v="altro"><span class="ico">⚙︎</span><span class="lbl">Altro</span></a>
-    <div class="sync" id="sync">Dati salvati solo su questo dispositivo</div>
+    <div class="sync" id="sync"></div>
   </nav>
   <main id="view"></main>
 </div>
@@ -170,8 +170,32 @@ function streak(h){let n=0,d=today();if(!h.log[d])d=addDays(d,-1);while(h.log[d]
 /* ---------- persistence (solo su questo telefono) ---------- */
 function loadLocal(){try{const r=localStorage.getItem(LS);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
   S.notified=S.notified||{};S.settings=S.settings||{taskHour:"09:00"}}
-function save(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast("Memoria piena: fai un backup ed elimina voci vecchie")}}
-function setSync(){}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast("Memoria piena: fai un backup ed elimina voci vecchie")}}
+function save(journalChanged){saveLocal();if(Cloud.push&&Cloud.user)Cloud.push(!!journalChanged)}
+/* ---------- ponte verso la sincronizzazione (sync.js) ---------- */
+const Cloud=window.Cloud={user:null,ready:false,push:null,text:"",
+  getState:()=>S,
+  status(t){this.text=t;const e=$("#sync");if(e)e.textContent=t?"☁️ "+t:"";const s=$("#syncState");if(s)s.textContent=t},
+  onUser(){const j=$("#jt");if(!(j&&document.activeElement===j))render()},
+  applyRemote(main,journal){
+    if(main){const m=JSON.parse(JSON.stringify(main));delete m.updatedAt;
+      S=Object.assign({goals:[],tasks:[],events:[],habits:[]},m,{journal:S.journal,notified:S.notified,settings:m.settings||S.settings})}
+    if(journal)S.journal=JSON.parse(JSON.stringify(journal));
+    saveLocal();const j=$("#jt");if(!(j&&document.activeElement===j))render()}
+};
+async function doAuth(kind){
+  const em=($("#aEmail")||{}).value?.trim(),pw=($("#aPw")||{}).value||"";const out=$("#aMsg");
+  const say=t=>{if(out)out.textContent=t};
+  if(!Cloud.ready){say("Sincronizzazione non disponibile: serve internet la prima volta.");return}
+  if(!em){say("Scrivi la tua email.");return}
+  try{
+    if(kind==="reset"){await Cloud.reset(em);say("Ti ho mandato un'email per reimpostare la password.");return}
+    if(pw.length<6){say("La password deve avere almeno 6 caratteri.");return}
+    say("Attendi…");
+    if(kind==="up")await Cloud.signUp(em,pw);else await Cloud.signIn(em,pw);
+    toast("Accesso effettuato ✓ I dati ora si sincronizzano");
+  }catch(e){const c=e.code||"";say(c.includes("invalid-credential")||c.includes("wrong-password")||c.includes("user-not-found")?"Email o password non corrette.":c.includes("email-already-in-use")?"Esiste già un account con questa email: usa Accedi.":c.includes("invalid-email")?"Email non valida.":c.includes("network")?"Serve la connessione a internet.":"Errore: "+c)}
+}
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 
 /* ---------- toast ---------- */
@@ -228,7 +252,7 @@ function backup(){const blob=new File([JSON.stringify(S,null,1)],"vita-backup-"+
   if(navigator.canShare&&navigator.canShare({files:[blob]})){navigator.share({files:[blob]}).catch(()=>{});return}
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=blob.name;document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),2000)}
 function restore(inp){const f=inp.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.tasks||!d.goals)throw 0;
-  confirmBox("Il backup sostituirà tutti i dati attuali.",()=>{S=Object.assign({goals:[],tasks:[],events:[],habits:[],journal:{},notified:{},settings:{taskHour:"09:00"}},d);save();render();toast("Backup ripristinato ✓")},"Ripristina")}catch(e){toast("File non valido")}};r.readAsText(f)}
+  confirmBox("Il backup sostituirà tutti i dati attuali.",()=>{S=Object.assign({goals:[],tasks:[],events:[],habits:[],journal:{},notified:{},settings:{taskHour:"09:00"}},d);save(true);render();toast("Backup ripristinato ✓")},"Ripristina")}catch(e){toast("File non valido")}};r.readAsText(f)}
 
 /* ---------- modal ---------- */
 function openModal(html){$("#modal").innerHTML=html;$("#ov").classList.add("open");if(matchMedia("(pointer:fine)").matches){const f=$("#modal input,#modal textarea");f&&f.focus()}}
@@ -353,6 +377,7 @@ function vOggi(){
    <div style="display:flex;gap:8px"><button class="btn ghost" onclick="editEvent()">+ Appuntamento</button><button class="btn" onclick="editTask()">+ Impegno</button></div></div>
   <div class="grid g4" style="margin-bottom:16px">
    ${"Notification"in window&&Notification.permission==="default"&&(matchMedia("(display-mode: standalone)").matches||navigator.standalone)?`<div class="note" style="grid-column:1/-1;margin:0">🔔 <a href="#" onclick="askNotif();return false">Attiva le notifiche</a> per i promemoria.</div>`:""}
+   ${Cloud.ready&&!Cloud.user?`<div class="note" style="grid-column:1/-1;margin:0">☁️ <a href="#altro">Accedi</a> per sincronizzare Vita tra iPhone e computer.</div>`:""}
    <div class="card stat"><div class="n">${todayTasks.length}</div><div class="l">impegni per oggi</div></div>
    <div class="card stat"><div class="n">${evToday.length}</div><div class="l">appuntamenti oggi</div></div>
    <div class="card stat"><div class="n">${habDone}/${S.habits.length}</div><div class="l">abitudini fatte</div></div>
@@ -447,8 +472,16 @@ function vDiario(){
 function vAltro(){
   const standalone=matchMedia("(display-mode: standalone)").matches||navigator.standalone;
   const perm="Notification"in window?Notification.permission:"non disponibile";
-  return `<div class="head"><div><h1>Impostazioni</h1><p>Notifiche, calendario e backup. I tuoi dati restano solo su questo telefono.</p></div></div>
+  return `<div class="head"><div><h1>Impostazioni</h1><p>Account, notifiche, calendario e backup.</p></div></div>
   <div class="grid g2">
+  <div class="card"><h3>☁️ Sincronizzazione</h3>${Cloud.user?`<div class="note">Collegato come <b>${esc(Cloud.user.email)}</b><br><span id="syncState">${esc(Cloud.text)}</span></div>
+   <p style="font-size:13px;color:var(--muted)">Tutto ciò che fai qui si aggiorna su ogni dispositivo dove accedi con questo account. Funziona anche offline: sincronizza appena torna internet.</p>
+   <button class="btn ghost" onclick="Cloud.signOut()">Esci</button>`:
+   `<p style="font-size:14px;margin-top:0">Accedi per avere gli stessi dati su iPhone e computer. Se è la prima volta, scegli <b>Crea account</b>: i dati già presenti su questo dispositivo verranno caricati nel tuo account.</p>
+   <div class="f"><label>Email</label><input id="aEmail" type="email" autocomplete="username" autocapitalize="off"></div>
+   <div class="f"><label>Password (almeno 6 caratteri)</label><input id="aPw" type="password" autocomplete="current-password"></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="doAuth('in')">Accedi</button><button class="btn ghost" onclick="doAuth('up')">Crea account</button><button class="btn ghost sm" onclick="doAuth('reset')">Password dimenticata</button></div>
+   <p id="aMsg" style="font-size:13px;color:var(--warn);min-height:1em"></p>`}</div>
   <div class="card"><h3>📲 Installazione</h3>${standalone?`<div class="note">✓ Vita è installata sulla schermata Home e funziona anche senza internet.</div>`:
    `<div class="note w">Per usarla come un'app: apri questa pagina in <b>Safari</b>, tocca <b>Condividi</b> (il quadrato con la freccia) → <b>Aggiungi alla schermata Home</b>. Poi aprila sempre dall'icona.</div>`}</div>
   <div class="card"><h3>🔔 Notifiche</h3>
@@ -480,5 +513,6 @@ checkReminders();setInterval(checkReminders,30000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){checkReminders();render()}});
 let lastDay=today();setInterval(()=>{if(today()!==lastDay){lastDay=today();render()}},60000);
 </script>
+<script type="module" src="sync.js"></script>
 </body>
 </html>
