@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebas
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
          sendPasswordResetEmail, signOut, setPersistence, indexedDBLocalPersistence }
   from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, doc, setDoc, onSnapshot }
+import { initializeFirestore, persistentLocalCache, doc, setDoc, onSnapshot, collection, deleteDoc }
   from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -48,8 +48,27 @@ C.signUp = (email, pw) => createUserWithEmailAndPassword(auth, email, pw);
 C.reset = (email) => sendPasswordResetEmail(auth, email);
 C.signOut = () => signOut(auth);
 
+// --- casella postale: Claude deposita qui, Vita smista e cancella ---
+let inboxUnsub = null, inboxToken = null;
+function startInbox() {
+  const tok = C.getState().settings && C.getState().settings.inboxToken;
+  if (!tok || tok === inboxToken || !mainRef) return;
+  if (inboxUnsub) inboxUnsub();
+  inboxToken = tok;
+  inboxUnsub = onSnapshot(collection(db, "inbox", tok, "items"), (qs) => {
+    qs.docChanges().forEach(async (ch) => {
+      if (ch.type !== "added") return;
+      const d = ch.doc.data();
+      try { if (d && d.code) C.applyInbox(d.code); } catch (e) {}
+      try { await deleteDoc(ch.doc.ref); } catch (e) {}
+    });
+  }, () => {});
+}
+C.startInbox = startInbox;
+
 onAuthStateChanged(auth, (user) => {
   unsub.forEach(u => u()); unsub = [];
+  if (inboxUnsub) { inboxUnsub(); inboxUnsub = null; inboxToken = null; }
   mainRef = jRef = mRef = null;
   C.user = user ? { email: user.email, uid: user.uid } : null;
   if (!user) { C.status("Non collegato"); C.onUser(); return; }
@@ -58,15 +77,20 @@ onAuthStateChanged(auth, (user) => {
   jRef = doc(db, "users", user.uid, "vita", "diario");
   mRef = doc(db, "users", user.uid, "vita", "soldi");
   first = { m: false, j: false };
-  unsub.push(onSnapshot(mainRef, { includeMetadataChanges: false }, (snap) => {
+  let lastMain = null;
+  unsub.push(onSnapshot(mainRef, { includeMetadataChanges: true }, (snap) => {
+    C.status(snap.metadata.fromCache ? "Offline: si sincronizza appena torni online" : "✓ Sincronizzato");
     if (snap.metadata.hasPendingWrites) return;               // è una nostra modifica
     if (!snap.exists()) {
-      if (!first.m && !snap.metadata.fromCache) { first.m = true; pending.j = true; push(pending); } // primo accesso: carica i dati del telefono
+      if (!first.m && !snap.metadata.fromCache) { first.m = true; C.ensureToken(); pending.j = true; push(pending); setTimeout(startInbox, 1500); } // primo accesso: carica i dati del telefono
       return;
     }
     first.m = true;
-    C.applyRemote(snap.data(), null);
-    C.status(snap.metadata.fromCache ? "Offline: dati salvati sul dispositivo" : "✓ Sincronizzato");
+    const d = snap.data(), sig = d.updatedAt;
+    if (sig && sig === lastMain) return;                      // solo cambio di stato rete, dati uguali
+    lastMain = sig;
+    C.applyRemote(d, null);
+    C.ensureToken(); startInbox();
   }, (e) => C.status("Errore: " + e.code)));
   unsub.push(onSnapshot(jRef, (snap) => {
     if (snap.metadata.hasPendingWrites || !snap.exists()) return;

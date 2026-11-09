@@ -191,6 +191,10 @@ const Cloud=window.Cloud={user:null,ready:false,push:null,text:"",
     if(money){const m=JSON.parse(JSON.stringify(money));S.accounts=m.accounts||[];S.txs=m.txs||[]}
     saveLocal();const j=$("#jt");if(!(j&&document.activeElement===j))render()}
 };
+Cloud.ensureToken=function(){S.settings=S.settings||{taskHour:"09:00"};if(!S.settings.inboxToken){const a=new Uint8Array(24);crypto.getRandomValues(a);S.settings.inboxToken=[...a].map(x=>x.toString(16).padStart(2,"0")).join("");save()}};
+Cloud.applyInbox=function(code){const items=parseVita(code);const r=applyItems(items);if(r.n){save();const j=$("#jt");if(!(j&&document.activeElement===j))render();notify({k:"inbox"+Date.now(),title:"🤖 Da Claude",body:items.map(x=>describeItem(x).replace(/<[^>]+>/g,"")).slice(0,3).join(" · ")})}};
+async function copyKey(){const k=S.settings.inboxToken;try{await navigator.clipboard.writeText(k);toast("Chiave copiata ✓")}catch(e){openModal(`<h2>Chiave per Claude</h2><p style="font-size:13px">Tieni premuto e copia:</p><textarea rows="3" readonly style="width:100%">${k}</textarea><div class="actions"><button class="btn" onclick="closeModal()">Ok</button></div>`)}}
+function newKey(){confirmBox("Creo una nuova chiave: quella vecchia smetterà di funzionare e dovrai dare a Claude quella nuova.",()=>{delete S.settings.inboxToken;Cloud.ensureToken();Cloud.startInbox&&Cloud.startInbox();render();toast("Nuova chiave creata")},"Cambia chiave")}
 async function doAuth(kind){
   const em=($("#aEmail")||{}).value?.trim(),pw=($("#aPw")||{}).value||"";const out=$("#aMsg");
   const say=t=>{if(out)out.textContent=t};
@@ -382,7 +386,7 @@ function vOggi(){
   const habDone=S.habits.filter(x=>x.log[t]).length;
   const open=S.tasks.filter(x=>!x.done).length;
   return `<div class="head"><div><h1>${saluto}</h1><p>${["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"][d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]} ${d.getFullYear()}</p></div>
-   <div style="display:flex;gap:8px"><button class="btn ghost" onclick="editEvent()">+ Appuntamento</button><button class="btn" onclick="editTask()">+ Impegno</button></div></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" onclick="importFromClaude()">📋 Da Claude</button><button class="btn ghost" onclick="editEvent()">+ Appuntamento</button><button class="btn" onclick="editTask()">+ Impegno</button></div></div>
   <div class="grid g4" style="margin-bottom:16px">
    ${"Notification"in window&&Notification.permission==="default"&&(matchMedia("(display-mode: standalone)").matches||navigator.standalone)?`<div class="note" style="grid-column:1/-1;margin:0">🔔 <a href="#" onclick="askNotif();return false">Attiva le notifiche</a> per i promemoria.</div>`:""}
    ${Cloud.ready&&!Cloud.user?`<div class="note" style="grid-column:1/-1;margin:0">☁️ <a href="#altro">Accedi</a> per sincronizzare Vita tra iPhone e computer.</div>`:""}
@@ -485,7 +489,10 @@ function vAltro(){
   <div class="grid g2">
   <div class="card"><h3>☁️ Sincronizzazione</h3>${Cloud.user?`<div class="note">Collegato come <b>${esc(Cloud.user.email)}</b><br><span id="syncState">${esc(Cloud.text)}</span></div>
    <p style="font-size:13px;color:var(--muted)">Tutto ciò che fai qui si aggiorna su ogni dispositivo dove accedi con questo account. Funziona anche offline: sincronizza appena torna internet.</p>
-   <button class="btn ghost" onclick="Cloud.signOut()">Esci</button>`:
+   <button class="btn ghost" onclick="Cloud.signOut()">Esci</button>
+   <h3 style="margin-top:18px">🤖 Collegamento con Claude</h3>
+   <p style="font-size:13px;color:var(--muted);margin-top:0">Con questa chiave Claude può aggiungere cose a Vita direttamente, senza copia e incolla. Dalla solo a Claude: chi la conosce può aggiungere voci (non leggere i tuoi dati).</p>
+   ${S.settings&&S.settings.inboxToken?`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="copyKey()">Copia chiave</button><button class="btn ghost sm" onclick="newKey()">Cambia chiave</button></div>`:`<p style="font-size:13px">La chiave si crea al primo collegamento…</p>`}`:
    `<p style="font-size:14px;margin-top:0">Accedi per avere gli stessi dati su iPhone e computer. Se è la prima volta, scegli <b>Crea account</b>: i dati già presenti su questo dispositivo verranno caricati nel tuo account.</p>
    <div class="f"><label>Email</label><input id="aEmail" type="email" autocomplete="username" autocapitalize="off"></div>
    <div class="f"><label>Password (almeno 6 caratteri)</label><input id="aPw" type="password" autocomplete="current-password"></div>
@@ -600,6 +607,62 @@ function vSoldi(){
     <div class="filters" style="margin:0">${[["tutti","Tutti"],["out","Uscite"],["in","Entrate"],["tr","Giroconti"]].map(([k,l])=>`<button class="chip ${ui.txFilter===k?"on":""}" onclick="ui.txFilter='${k}';render()">${l}</button>`).join("")}</div></div>
    ${list.map(txRow).join("")||`<div class="empty">Nessun movimento in questo mese.</div>`}
   </div>`;
+}
+
+/* ---------- IMPORTA DA CLAUDE ---------- */
+// Formato: VITA:{"v":1,"add":[{"k":"event"|"task"|"goal"|"habit"|"tx"|"account", "id":"...", ...}]}
+function parseVita(txt){
+  const i=String(txt||"").indexOf("VITA:");if(i<0)throw new Error("Nel testo non trovo un codice VITA.");
+  let s=txt.slice(i+5).trim();const end=s.lastIndexOf("}");if(end<0)throw new Error("Codice incompleto.");s=s.slice(0,end+1);
+  s=s.replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+  const d=JSON.parse(s);if(!d||!Array.isArray(d.add))throw new Error("Codice non valido.");return d.add;
+}
+function findAcc(name){if(!name)return null;const n=String(name).toLowerCase();return S.accounts.find(a=>a.name.toLowerCase()===n)||S.accounts.find(a=>a.name.toLowerCase().includes(n)||n.includes(a.name.toLowerCase()))}
+function describeItem(x){
+  switch(x.k){
+    case"event":return`📅 ${esc(x.title)} — ${fmt(x.date,true)}${x.time?" alle "+esc(x.time):""}${x.place?" · "+esc(x.place):""}`;
+    case"task":return`✓ ${esc(x.title)}${x.due?" — entro "+fmt(x.due,true):""}${x.priority==="alta"?" · priorità alta":""}`;
+    case"goal":return`◎ ${esc(x.title)}${x.deadline?" — entro "+fmt(x.deadline,true):""}${(x.milestones||[]).length?" · "+x.milestones.length+" tappe":""}`;
+    case"habit":return`↻ Abitudine: ${esc(x.name)}`;
+    case"account":return`🏦 Conto ${esc(x.name)} — ${eur(num(x.initial))}`;
+    case"tx":return`${x.type==="in"?"＋":x.type==="tr"?"⇄":"−"} ${eur(num(x.amount))} ${esc(x.note||x.cat||"")}${x.type==="tr"?` (${esc(x.acc)} → ${esc(x.to)})`:x.acc?" · "+esc(x.acc):""}`;
+    default:return"? elemento sconosciuto";
+  }
+}
+function applyItems(items){
+  S.imported=S.imported||{};let n=0,skip=0;const t=today();
+  items.forEach(x=>{
+    const key=x.id||JSON.stringify(x);if(S.imported[key]){skip++;return}
+    switch(x.k){
+      case"event":S.events.push({id:uid(),title:x.title||"Appuntamento",date:x.date||t,time:x.time||"",end:x.end||"",place:x.place||"",notes:x.notes||"",remind:x.remind==null?"30":String(x.remind)});break;
+      case"task":S.tasks.push({id:uid(),title:x.title||"Impegno",due:x.due||"",time:x.time||"",priority:x.priority||"media",area:x.area||"Lavoro",goalId:"",notes:x.notes||"",repeat:x.repeat||"",remind:x.remind?"1":"",done:false,created:t});break;
+      case"goal":S.goals.push({id:uid(),title:x.title||"Obiettivo",area:x.area||"Crescita",deadline:x.deadline||"",why:x.why||"",done:false,created:t,milestones:(x.milestones||[]).map(m=>({id:uid(),t:String(m),done:false}))});break;
+      case"habit":S.habits.push({id:uid(),name:x.name||"Abitudine",log:{}});break;
+      case"account":{const ex=findAcc(x.name);if(ex){ex.initial=num(x.initial)}else S.accounts.push({id:uid(),name:x.name,type:x.type||"banca",initial:num(x.initial)});break}
+      case"tx":{const a=findAcc(x.acc)||S.accounts.find(a=>a.type==="banca")||S.accounts[0];if(!a){skip++;return}
+        const to=x.type==="tr"?findAcc(x.to):null;
+        S.txs.push({id:uid(),type:x.type||"out",date:x.date||t,amount:Math.abs(num(x.amount)),acc:a.id,to:to?to.id:"",cat:x.type==="tr"?"":(x.cat||"Altro"),note:x.note||""});break}
+      default:skip++;return;
+    }
+    S.imported[key]=Date.now();n++;
+  });
+  return{n,skip};
+}
+function showImport(txt){
+  let items=null,err="";if(txt){try{items=parseVita(txt)}catch(e){err=e.message}}
+  openModal(`<h2>📋 Da Claude</h2>
+  ${items?`<p style="font-size:14px;margin-top:0">Sto per aggiungere:</p><div style="margin-bottom:12px">${items.map(x=>`<div class="row"><div class="main"><div class="t" style="font-size:14px">${describeItem(x)}</div></div>${S.imported&&S.imported[x.id]?`<span class="tag">già inserito</span>`:""}</div>`).join("")}</div>
+   <div class="actions"><button class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn" id="impOk">Aggiungi</button></div>`:
+  `<p style="font-size:14px;margin-top:0">Incolla qui il codice che ti ha mandato Claude (inizia con <b>VITA:</b>).</p>
+   <div class="f"><textarea id="impTxt" rows="5" placeholder="VITA:{…}"></textarea></div>
+   ${err?`<p style="color:var(--warn);font-size:13px">${esc(err)}</p>`:""}
+   <div class="actions"><button class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn" id="impGo">Continua</button></div>`}`);
+  if(items)$("#impOk").onclick=()=>{const r=applyItems(items);save();closeModal();render();toast(r.n?`Aggiunti ${r.n} elementi ✓${r.skip?` (${r.skip} già presenti)`:""}`:"Niente di nuovo da aggiungere")};
+  else $("#impGo").onclick=()=>showImport($("#impTxt").value);
+}
+async function importFromClaude(){
+  try{if(navigator.clipboard&&navigator.clipboard.readText){const t=await navigator.clipboard.readText();if(t&&t.includes("VITA:")){showImport(t);return}}}catch(e){}
+  showImport("");
 }
 
 /* ---------- router ---------- */
