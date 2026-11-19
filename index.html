@@ -113,15 +113,26 @@ textarea.journal{width:100%;min-height:280px;border:1px solid var(--line);border
 .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 12px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;z-index:30;max-width:92vw;box-shadow:0 6px 24px rgba(0,0,0,.25);font-weight:500}
 .note{background:var(--accent-soft);border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:12px}
 .note.w{background:var(--warn-soft)}
+.tblw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px}
+.tbl{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.tbl th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:8px;border-top:1px solid var(--line);white-space:nowrap}
+.tbl tbody tr:first-child td{border-top:0}
+.tbl tbody tr[onclick]{cursor:pointer}
+.tbl tbody tr[onclick]:hover{background:var(--bg)}
+.tbl td.w{color:var(--warn);font-weight:700}
+.tbl.fert td{white-space:normal;min-width:90px}
+.tbl tr.hl td{background:var(--accent-soft)}
 @media (max-width:760px){
   .app{grid-template-columns:1fr}
   main{padding-top:calc(env(safe-area-inset-top) + 18px);padding-bottom:calc(env(safe-area-inset-bottom) + 90px)}
   .f input,.f select,.f textarea{font-size:16px}
   nav{position:fixed;bottom:0;top:auto;left:0;right:0;height:auto;display:flex;justify-content:space-around;padding:6px 4px calc(env(safe-area-inset-bottom) + 6px);border-right:0;border-top:1px solid var(--line);z-index:10}
   nav .brand,.sync{display:none}
-  nav a{flex-direction:column;gap:0;font-size:10px;padding:5px 4px;flex:1}
+  nav a{flex-direction:column;gap:0;font-size:9.5px;padding:5px 1px;flex:1 1 0;min-width:0}
+  nav .lbl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   nav .lbl{display:block!important}
-  nav .ico{font-size:19px}
+  nav .ico{font-size:18px}
   .hab{grid-template-columns:minmax(90px,1fr) repeat(7,28px) 44px 24px;gap:4px}
   .hab .cell{width:28px;height:28px}
   .cal .d{min-height:58px}
@@ -139,6 +150,7 @@ textarea.journal{width:100%;min-height:280px;border:1px solid var(--line);border
     <a href="#agenda" data-v="agenda"><span class="ico">▦</span><span class="lbl">Agenda</span></a>
     <a href="#abitudini" data-v="abitudini"><span class="ico">↻</span><span class="lbl">Abitudini</span></a>
     <a href="#soldi" data-v="soldi"><span class="ico">€</span><span class="lbl">Soldi</span></a>
+    <a href="#acquari" data-v="acquari"><span class="ico">≋</span><span class="lbl">Acquari</span></a>
     <a href="#diario" data-v="diario"><span class="ico">✎</span><span class="lbl">Diario</span></a>
     <a href="#altro" data-v="altro"><span class="ico">⚙︎</span><span class="lbl">Altro</span></a>
     <div class="sync" id="sync"></div>
@@ -223,6 +235,7 @@ function dueReminders(){
     if(at<=now&&evStart(e).getTime()>now-36e5)out.push({k:"e"+e.id+"@"+e.date+e.time+e.remind,title:"📅 "+e.title,body:(e.time?"Alle "+e.time:fmt(e.date))+(e.place?" · "+e.place:"")})});
   S.tasks.forEach(t=>{if(t.done||!t.due||!t.remind)return;const[h,m]=(t.time||S.settings.taskHour||"09:00").split(":").map(Number);const d=parse(t.due);d.setHours(h,m,0,0);
     if(d.getTime()<=now)out.push({k:"t"+t.id+"@"+t.due,title:"✓ "+t.title,body:t.due<today()?"Impegno scaduto":"Da fare oggi"})});
+  try{out.push(...aqReminders())}catch(e){}
   return out.filter(r=>!S.notified[r.k]);
 }
 async function notify(r){
@@ -609,8 +622,183 @@ function vSoldi(){
   </div>`;
 }
 
+/* ---------- ACQUARI ---------- */
+const AQ_FERT=[
+  {p:"Profito",type:"micro",cam:"10 ml",sal:"18 ml",freq:"settimanale, lunedì"},
+  {p:"Potassio (Arka Plants K)",type:"macro",cam:"10 ml",sal:"18 ml",freq:"settimanale, giovedì"},
+  {p:"Nitro",type:"macro (azoto)",cam:"solo se NO3 < 10",sal:"solo se NO3 < 10",freq:"giovedì"},
+  {p:"Fosfo",type:"macro (fosforo)",cam:"1/10 del volume di Nitro",sal:"1/10 del volume di Nitro",freq:"giovedì"},
+  {p:"Root Stick",type:"fondo",cam:"5-6 pezzi",sal:"6-8 pezzi",freq:"ogni 3-4 mesi"}
+];
+const AQ_PRODUCTS=["Profito","Potassio","Nitro","Fosfo","Root Stick","KH+"];
+const AQ_FILTER_WHAT=["Sciacquo spugne","Cambio ovatta","Cambio torba"];
+const AQ_SEED=()=>({
+  tanks:[
+    {id:"camera",name:"Acquario in camera",model:"Juwel Primo 110",dims:"81×36×45 cm",liters:"100",
+     pop:"4 Cleithracara maronii\n25 Paracheirodon innesi\n2 Hyphessobrycon eques\n1 Ancistrus",
+     notes:"Acqua di rubinetto, allestimento blackwater con torba nel filtro."},
+    {id:"sala",name:"Acquario in sala",model:"",dims:"100×40 cm",liters:"180",
+     pop:"Scalari\n16 cardinali\n2 Ancistrus\n1 coppia di Apistogramma viejita gold",notes:""}
+  ],
+  params:[
+    {id:"seed-p-cam-1",tank:"camera",date:"2026-11-19",ph:"7,5",gh:"9",kh:"11",no2:"0",no3:"1",temp:"24"},
+    {id:"seed-p-sal-1",tank:"sala",date:"2026-11-17",ph:"6,5-7",gh:"7",kh:"2",no2:"0",no3:"80",temp:"26"}
+  ],
+  doses:[
+    {id:"seed-d-sal-1",tank:"sala",date:"2026-11-17",product:"KH+",qty:""},
+    {id:"seed-d-sal-2",tank:"sala",date:"2026-11-17",product:"Potassio",qty:""}
+  ],
+  water:[{id:"seed-w-cam-1",tank:"camera",date:"2026-11-19",liters:"20-25",notes:"Sifonatura del fondo"}],
+  filter:[{id:"seed-f-cam-1",tank:"camera",date:"2026-11-19",what:"Cambio ovatta, inserimento torba nel filtro",notes:""}]
+});
+function aqEnsure(){
+  if(!S.aq||!Array.isArray(S.aq.tanks)){S.aq=AQ_SEED();return true}
+  ["params","doses","water","filter"].forEach(k=>{if(!Array.isArray(S.aq[k]))S.aq[k]=[]});return false}
+const aqTank=id=>(S.aq.tanks||[]).find(t=>t.id===id);
+const aqTankName=id=>{const t=aqTank(id);return t?t.name.replace(/^Acquario in /i,"").replace(/^./,c=>c.toUpperCase()):id};
+function aqFindTank(v){if(!v)return null;const n=String(v).toLowerCase().trim();
+  return S.aq.tanks.find(t=>t.id===n)||S.aq.tanks.find(t=>t.name.toLowerCase()===n)||S.aq.tanks.find(t=>t.name.toLowerCase().includes(n)||n.includes(t.id))}
+const byDateDesc=(a,b)=>(b.date||"").localeCompare(a.date||"")||String(b.id).localeCompare(String(a.id));
+function aqLast(list,tank){return list.filter(x=>x.tank===tank).sort(byDateDesc)[0]}
+function aqSince(list,tank){const l=aqLast(list,tank);if(!l||!l.date)return null;return -daysTo(l.date)}
+const sinceTxt=n=>n==null?"mai registrato":n===0?"oggi":n===1?"ieri":n+" giorni fa";
+const aqNum=v=>{const m=String(v??"").replace(",",".").match(/-?\d+(\.\d+)?/);return m?parseFloat(m[0]):null};
+function aqWarn(k,v){const n=aqNum(v);if(n==null)return false;return(k==="no2"&&n>0)||(k==="no3"&&n>50)}
+function aqScroll(id){const e=document.getElementById(id);if(e)e.scrollIntoView({behavior:"smooth",block:"start"})}
+
+/* campi dei registri */
+const AQ_KINDS={
+  params:{label:"misurazione",fields:[["date","Data","date"],["ph","pH"],["gh","GH"],["kh","KH"],["no2","NO2"],["no3","NO3"],["temp","Temperatura °C"]]},
+  doses:{label:"dose",fields:[["date","Data","date"],["product","Prodotto","product"],["qty","Quantità (es. 10 ml)"]]},
+  water:{label:"cambio d'acqua",fields:[["date","Data","date"],["liters","Litri cambiati"],["notes","Note","area"]]},
+  filter:{label:"pulizia filtro",fields:[["date","Data","date"],["what","Cosa è stato fatto","what"],["notes","Note","area"]]}
+};
+function aqEdit(kind,id,preset={}){
+  const K=AQ_KINDS[kind],list=S.aq[kind];
+  const r=list.find(x=>x.id===id)||Object.assign({tank:"camera",date:today()},preset);
+  const inp=([k,l,ty])=>{const v=esc(r[k]??"");
+    if(ty==="date")return`<div class="f"><label>${l}</label><input type="date" name="${k}" value="${v}" required></div>`;
+    if(ty==="area")return`<div class="f"><label>${l}</label><textarea name="${k}" rows="2">${v}</textarea></div>`;
+    if(ty==="product")return`<div class="f"><label>${l}</label><input name="${k}" list="aqProd" value="${v}" required><datalist id="aqProd">${AQ_PRODUCTS.map(p=>`<option value="${p}">`).join("")}</datalist></div>`;
+    if(ty==="what")return`<div class="f"><label>${l}</label><input name="${k}" list="aqWhat" value="${v}" required placeholder="Sciacquo spugne, cambio ovatta…"><datalist id="aqWhat">${AQ_FILTER_WHAT.map(p=>`<option value="${p}">`).join("")}</datalist></div>`;
+    return`<div class="f"><label>${l}</label><input name="${k}" value="${v}" inputmode="${kind==="params"?"decimal":"text"}"></div>`};
+  const fs=K.fields;
+  const body=kind==="params"
+    ?inp(fs[0])+`<div class="f2">${fs.slice(1).map(inp).join("")}</div>`
+    :fs.map(inp).join("");
+  openModal(`<h2>${id?"Modifica "+K.label:"Nuova "+K.label}</h2>
+  <form id="fm"><div class="f"><label>Vasca</label><select name="tank">${S.aq.tanks.map(t=>`<option value="${t.id}" ${t.id===r.tank?"selected":""}>${esc(t.name)}</option>`).join("")}</select></div>
+  ${body}
+  <div class="actions">${id?`<button type="button" class="btn ghost" id="del">Elimina</button><span class="sp"></span>`:""}<button type="button" class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn">Salva</button></div></form>`);
+  $("#fm").onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    Object.keys(f).forEach(k=>f[k]=String(f[k]).trim());
+    if(id)Object.assign(r,f);else list.push(Object.assign({id:uid()},f));closeModal();save();render()};
+  if(id)$("#del").onclick=()=>confirmBox("Eliminare questa riga?",()=>{S.aq[kind]=S.aq[kind].filter(x=>x.id!==id);save();render()});
+}
+function aqEditTank(id){
+  const t=aqTank(id);if(!t)return;
+  openModal(`<h2>Modifica vasca</h2><form id="fm">
+  <div class="f"><label>Nome</label><input name="name" required value="${esc(t.name)}"></div>
+  <div class="f2"><div class="f"><label>Modello</label><input name="model" value="${esc(t.model)}"></div><div class="f"><label>Litri</label><input name="liters" value="${esc(t.liters)}" inputmode="decimal"></div></div>
+  <div class="f"><label>Misure</label><input name="dims" value="${esc(t.dims)}"></div>
+  <div class="f"><label>Popolazione (una specie per riga)</label><textarea name="pop" rows="5">${esc(t.pop)}</textarea></div>
+  <div class="f"><label>Note</label><textarea name="notes" rows="2">${esc(t.notes)}</textarea></div>
+  <div class="actions"><button type="button" class="btn ghost" onclick="closeModal()">Annulla</button><button class="btn">Salva</button></div></form>`);
+  $("#fm").onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));Object.assign(t,f);closeModal();save();render()};
+}
+/* tasto rapido: registra le dosi di riferimento di oggi per tutte e due le vasche */
+function aqQuickDose(product){
+  const q={Profito:{camera:"10 ml",sala:"18 ml"},Potassio:{camera:"10 ml",sala:"18 ml"}}[product];if(!q)return;
+  const d=today();let n=0;
+  Object.entries(q).forEach(([tank,qty])=>{if(!aqTank(tank))return;
+    if(S.aq.doses.some(x=>x.tank===tank&&x.date===d&&x.product===product))return;
+    S.aq.doses.push({id:uid(),tank,date:d,product,qty});n++});
+  save();render();toast(n?`${product} registrato per oggi ✓`:`${product} era già registrato oggi`)}
+/* calendario iPhone: due promemoria settimanali ricorrenti, avviso alle 7:00 */
+function aqCalendar(){
+  const nextDow=dow=>{const d=new Date();d.setHours(0,0,0,0);while(d.getDay()!==dow)d.setDate(d.getDate()+1);return iso(d)};
+  const ev=(uidS,title,desc,dow,by)=>{const s=nextDow(dow).replace(/-/g,"");return["BEGIN:VEVENT","UID:"+uidS+"@vita","DTSTAMP:"+icsDT(new Date()),
+    "DTSTART;VALUE=DATE:"+s,"DTEND;VALUE=DATE:"+addDays(nextDow(dow),1).replace(/-/g,""),"RRULE:FREQ=WEEKLY;BYDAY="+by,
+    "SUMMARY:"+icsEsc(title),"DESCRIPTION:"+icsEsc(desc),"TRANSP:TRANSPARENT",
+    "BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+icsEsc(title),"TRIGGER:PT7H","END:VALARM","END:VEVENT"]};
+  shareICS([...ev("aq-micro-lun","🐠 Lunedì — Micro","Profito: 10 ml camera + 18 ml sala",1,"MO"),
+            ...ev("aq-macro-gio","🐠 Giovedì — Macro","Potassio: 10 ml camera + 18 ml sala",4,"TH")],"Vita-acquari")}
+/* promemoria dentro Vita (lunedì e giovedì alle 7:00, finché non registri la dose) */
+function aqReminders(){
+  if(!S.aq)return[];const d=new Date(),dow=d.getDay(),t=today();
+  if(d.getHours()<7)return[];
+  const r=dow===1?["Profito","🐠 Lunedì — Micro","Profito: 10 ml camera + 18 ml sala"]:dow===4?["Potassio","🐠 Giovedì — Macro","Potassio: 10 ml camera + 18 ml sala"]:null;
+  if(!r||S.aq.doses.some(x=>x.date===t&&x.product===r[0]))return[];
+  return[{k:"aq@"+t,title:r[1],body:r[2]}]}
+
+function aqTable(tank){
+  const rows=S.aq.params.filter(x=>x.tank===tank).sort(byDateDesc);
+  const cols=[["ph","pH"],["gh","GH"],["kh","KH"],["no2","NO2"],["no3","NO3"],["temp","°C"]];
+  return`<div class="tblw"><table class="tbl"><thead><tr><th>Data</th>${cols.map(c=>`<th>${c[1]}</th>`).join("")}</tr></thead><tbody>
+   ${rows.map(r=>`<tr onclick="aqEdit('params','${r.id}')"><td>${esc(fmtD(r.date))}</td>${cols.map(([k])=>`<td class="${aqWarn(k,r[k])?"w":""}">${esc(r[k]??"")||"—"}</td>`).join("")}</tr>`).join("")
+   ||`<tr><td colspan="7" class="empty">Nessuna misurazione.</td></tr>`}</tbody></table></div>`}
+const fmtD=s=>{if(!s)return"";const[a,b,c]=s.split("-");return c+"/"+b+"/"+a.slice(2)};
+function aqLogList(kind,main,sub){
+  const l=S.aq[kind].slice().sort(byDateDesc);
+  return l.map(r=>`<div class="row" style="cursor:pointer" onclick="aqEdit('${kind}','${r.id}')"><span class="tag">${esc(aqTankName(r.tank))}</span>
+   <div class="main"><div class="t">${main(r)}</div><div class="s">${fmtD(r.date)} · ${fmt(r.date)}${sub&&sub(r)?" · "+sub(r):""}</div></div></div>`).join("")
+   ||`<div class="empty">Ancora nessuna voce.</div>`}
+function aqSinceStats(kind){
+  return`<div class="grid g4" style="grid-template-columns:repeat(${S.aq.tanks.length},1fr);gap:10px;margin-bottom:6px">${S.aq.tanks.map(t=>{const n=aqSince(S.aq[kind],t.id);
+    return`<div class="stat" style="background:var(--bg);border-radius:10px;padding:10px 12px"><div class="n" style="font-size:24px">${n==null?"—":n}</div><div class="l">${esc(aqTankName(t.id))} · ${n==null?"mai registrato":n===1?"giorno dall'ultimo":"giorni dall'ultimo"}</div></div>`}).join("")}</div>`}
+
+function vAcquari(){
+  if(aqEnsure())save();
+  const dow=new Date().getDay();
+  const todayFert=dow===1?"micro":dow===4?"macro":"";
+  const nitro=S.aq.tanks.map(t=>{const l=aqLast(S.aq.params,t.id);const v=l?aqNum(l.no3):null;
+    return`<b>${esc(aqTankName(t.id))}</b>: ${v==null?"nessun valore di NO3":v<10?`NO3 ${esc(l.no3)} → <b>sì</b>, dosa Nitro (+ Fosfo a 1/10)`:`NO3 ${esc(l.no3)} → <b>no</b>, niente Nitro né Fosfo`}`}).join("<br>");
+  return`<div class="head"><div><h1>Acquari</h1><p>Vasche, valori, fertilizzazione e manutenzione.</p></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" onclick="importFromClaude()">📋 Da Claude</button><button class="btn" onclick="aqEdit('params')">+ Valori</button></div></div>
+  <div class="filters">${[["aqV","Vasche"],["aqP","Valori"],["aqF","Fertilizzazione"],["aqM","Cambi e filtro"]].map(([i,l])=>`<button class="chip" onclick="aqScroll('${i}')">${l}</button>`).join("")}</div>
+
+  <div class="grid g2" id="aqV">${S.aq.tanks.map(t=>{const w=aqSince(S.aq.water,t.id),f=aqSince(S.aq.filter,t.id);
+   return`<div class="card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><h3 style="margin-bottom:2px">${esc(t.name)}</h3>
+    <div class="s" style="color:var(--muted);font-size:13px">${[t.model,t.dims,t.liters?"~"+t.liters+" L netti":""].filter(Boolean).map(esc).join(" · ")}</div></div>
+    <button class="icon-btn" onclick="aqEditTank('${t.id}')" title="Modifica">✎</button></div>
+    <ul style="margin:10px 0 8px;padding-left:18px;font-size:14px">${String(t.pop||"").split("\n").filter(s=>s.trim()).map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
+    ${t.notes?`<div class="s" style="font-size:13px;color:var(--muted);margin-bottom:8px">${esc(t.notes)}</div>`:""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="tag">💧 cambio: ${sinceTxt(w)}</span><span class="tag">🧽 filtro: ${sinceTxt(f)}</span></div></div>`}).join("")}</div>
+
+  <h2 id="aqP" style="font-size:22px;margin:26px 0 12px">Valori</h2>
+  <div class="grid g2">${S.aq.tanks.map(t=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">${esc(aqTankName(t.id))}</h3><button class="btn sm ghost" onclick="aqEdit('params',null,{tank:'${t.id}'})">+ Riga</button></div>${aqTable(t.id)}</div>`).join("")}</div>
+
+  <h2 id="aqF" style="font-size:22px;margin:26px 0 12px">Fertilizzazione</h2>
+  <div class="card">
+   <div class="note w" style="margin-bottom:12px"><b>Micro e macro mai lo stesso giorno</b>: il ferro del Profito e il fosfato precipitano insieme e si annullano.</div>
+   ${todayFert?`<div class="note">Oggi è giorno di <b>${todayFert}</b>: ${todayFert==="micro"?"Profito 10 ml camera + 18 ml sala.":"Potassio 10 ml camera + 18 ml sala."}
+     <div style="margin-top:8px"><button class="btn sm" onclick="aqQuickDose('${todayFert==="micro"?"Profito":"Potassio"}')">✓ Fatto, registra</button></div></div>`:""}
+   <div class="tblw"><table class="tbl fert"><thead><tr><th>Prodotto</th><th>Tipo</th><th>Camera (100 L)</th><th>Sala (180 L)</th><th>Frequenza</th></tr></thead><tbody>
+    ${AQ_FERT.map(r=>`<tr class="${todayFert&&r.type.startsWith(todayFert)?"hl":""}"><td><b>${esc(r.p)}</b></td><td>${esc(r.type)}</td><td>${esc(r.cam)}</td><td>${esc(r.sal)}</td><td>${esc(r.freq)}</td></tr>`).join("")}</tbody></table></div>
+   <div style="font-size:13.5px;margin-top:12px;line-height:1.7"><span style="color:var(--muted)">Nitro di giovedì, secondo l'ultimo NO3:</span><br>${nitro}</div>
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+   <div class="card"><h3>Promemoria settimanali</h3>
+    <div class="row"><div class="main"><div class="t">Lunedì — Micro</div><div class="s">Profito: 10 ml camera + 18 ml sala</div></div></div>
+    <div class="row"><div class="main"><div class="t">Giovedì — Macro</div><div class="s">Potassio: 10 ml camera + 18 ml sala</div></div></div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 10px">Vita te li ricorda alle 7:00. Aggiungili anche al Calendario di iPhone: si ripetono ogni settimana e suonano anche ad app chiusa.</p>
+    <button class="btn sm" onclick="aqCalendar()">📅 Aggiungi al Calendario</button></div>
+   <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">Dosi somministrate</h3><button class="btn sm ghost" onclick="aqEdit('doses')">+ Dose</button></div>
+    ${aqLogList("doses",r=>esc(r.product)+(r.qty?" · "+esc(r.qty):""))}</div>
+  </div>
+
+  <h2 id="aqM" style="font-size:22px;margin:26px 0 12px">Cambi d'acqua e pulizia filtro</h2>
+  <div class="grid g2">
+   <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">💧 Cambi d'acqua</h3><button class="btn sm ghost" onclick="aqEdit('water')">+ Cambio</button></div>
+    ${aqSinceStats("water")}${aqLogList("water",r=>(r.liters?esc(r.liters)+" L":"Cambio d'acqua"),r=>esc(r.notes||""))}</div>
+   <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">🧽 Pulizia filtro</h3><button class="btn sm ghost" onclick="aqEdit('filter')">+ Intervento</button></div>
+    ${aqSinceStats("filter")}${aqLogList("filter",r=>esc(r.what),r=>esc(r.notes||""))}</div>
+  </div>`;
+}
+
 /* ---------- IMPORTA DA CLAUDE ---------- */
-// Formato: VITA:{"v":1,"add":[{"k":"event"|"task"|"goal"|"habit"|"tx"|"account", "id":"...", ...}]}
+// Formato: VITA:{"v":1,"add":[{"k":"event"|"task"|"goal"|"habit"|"tx"|"account"|"aqparam"|"aqdose"|"aqwater"|"aqfilter", "id":"...", ...}]}
+// Acquari: tank = "camera" | "sala"; aqparam {date,ph,gh,kh,no2,no3,temp}; aqdose {date,product,qty}; aqwater {date,liters,notes}; aqfilter {date,what,notes}
 function parseVita(txt){
   const i=String(txt||"").indexOf("VITA:");if(i<0)throw new Error("Nel testo non trovo un codice VITA.");
   let s=txt.slice(i+5).trim();const end=s.lastIndexOf("}");if(end<0)throw new Error("Codice incompleto.");s=s.slice(0,end+1);
@@ -625,6 +813,10 @@ function describeItem(x){
     case"goal":return`◎ ${esc(x.title)}${x.deadline?" — entro "+fmt(x.deadline,true):""}${(x.milestones||[]).length?" · "+x.milestones.length+" tappe":""}`;
     case"habit":return`↻ Abitudine: ${esc(x.name)}`;
     case"account":return`🏦 Conto ${esc(x.name)} — ${eur(num(x.initial))}`;
+    case"aqparam":return`🐠 Valori ${esc(x.tank)} — ${fmt(x.date,true)}: pH ${esc(x.ph??"—")} · GH ${esc(x.gh??"—")} · KH ${esc(x.kh??"—")} · NO2 ${esc(x.no2??"—")} · NO3 ${esc(x.no3??"—")} · ${esc(x.temp??"—")} °C`;
+    case"aqdose":return`🧪 ${esc(x.product)}${x.qty?" "+esc(x.qty):""} — ${esc(x.tank)}, ${fmt(x.date,true)}`;
+    case"aqwater":return`💧 Cambio d'acqua ${esc(x.tank)}${x.liters?" · "+esc(x.liters)+" L":""} — ${fmt(x.date,true)}`;
+    case"aqfilter":return`🧽 Filtro ${esc(x.tank)}: ${esc(x.what)} — ${fmt(x.date,true)}`;
     case"tx":return`${x.type==="in"?"＋":x.type==="tr"?"⇄":"−"} ${eur(num(x.amount))} ${esc(x.note||x.cat||"")}${x.type==="tr"?` (${esc(x.acc)} → ${esc(x.to)})`:x.acc?" · "+esc(x.acc):""}`;
     default:return"? elemento sconosciuto";
   }
@@ -642,6 +834,12 @@ function applyItems(items){
       case"tx":{const a=findAcc(x.acc)||S.accounts.find(a=>a.type==="banca")||S.accounts[0];if(!a){skip++;return}
         const to=x.type==="tr"?findAcc(x.to):null;
         S.txs.push({id:uid(),type:x.type||"out",date:x.date||t,amount:Math.abs(num(x.amount)),acc:a.id,to:to?to.id:"",cat:x.type==="tr"?"":(x.cat||"Altro"),note:x.note||""});break}
+      case"aqparam":case"aqdose":case"aqwater":case"aqfilter":{aqEnsure();const tk=aqFindTank(x.tank);if(!tk){skip++;return}
+        const base={id:uid(),tank:tk.id,date:x.date||t};const s=v=>v==null?"":String(v);
+        if(x.k==="aqparam")S.aq.params.push(Object.assign(base,{ph:s(x.ph),gh:s(x.gh),kh:s(x.kh),no2:s(x.no2),no3:s(x.no3),temp:s(x.temp)}));
+        else if(x.k==="aqdose")S.aq.doses.push(Object.assign(base,{product:s(x.product),qty:s(x.qty)}));
+        else if(x.k==="aqwater")S.aq.water.push(Object.assign(base,{liters:s(x.liters),notes:s(x.notes)}));
+        else S.aq.filter.push(Object.assign(base,{what:s(x.what),notes:s(x.notes)}));break}
       default:skip++;return;
     }
     S.imported[key]=Date.now();n++;
@@ -666,7 +864,7 @@ async function importFromClaude(){
 }
 
 /* ---------- router ---------- */
-const VIEWS={oggi:vOggi,obiettivi:vObiettivi,impegni:vImpegni,agenda:vAgenda,abitudini:vAbitudini,diario:vDiario,soldi:vSoldi,altro:vAltro};
+const VIEWS={oggi:vOggi,obiettivi:vObiettivi,impegni:vImpegni,agenda:vAgenda,abitudini:vAbitudini,diario:vDiario,soldi:vSoldi,acquari:vAcquari,altro:vAltro};
 function cur(){const h=location.hash.slice(1);return VIEWS[h]?h:"oggi"}
 function render(){
   const v=cur();$("#view").innerHTML=VIEWS[v]();
